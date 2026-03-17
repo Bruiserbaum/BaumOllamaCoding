@@ -1,7 +1,6 @@
 import { marked, Renderer } from 'marked';
 import hljs from 'highlight.js';
 
-// Configure marked with syntax highlighting
 const renderer = new Renderer();
 
 renderer.code = ({ text, lang }: { text: string; lang?: string }) => {
@@ -10,53 +9,34 @@ renderer.code = ({ text, lang }: { text: string; lang?: string }) => {
   try {
     highlighted = hljs.highlight(text, { language }).value;
   } catch {
-    highlighted = hljs.highlightAuto(text).value;
+    highlighted = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
-
-  // Escape for use in data attribute
-  const escapedCode = text.replace(/"/g, '&quot;').replace(/\\/g, '\\\\');
 
   return `<div class="code-block">
   <div class="code-block-header">
     <span class="code-block-lang">${language}</span>
-    <button class="copy-btn" onclick="(function(btn){
-      const code = btn.closest('.code-block').querySelector('code').innerText;
-      navigator.clipboard.writeText(code).then(() => {
-        btn.textContent = 'Copied!';
-        btn.classList.add('copy-btn--copied');
-        setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copy-btn--copied'); }, 2000);
-      }).catch(() => {
-        btn.textContent = 'Failed';
-        setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
-      });
-    })(this)">Copy</button>
+    <button class="copy-btn" data-code="${encodeURIComponent(text)}">Copy</button>
   </div>
   <pre><code class="hljs language-${language}">${highlighted}</code></pre>
 </div>`;
 };
 
-marked.use({ renderer });
-
-marked.setOptions({
+// Single marked.use() call — do not mix with marked.setOptions()
+marked.use({
+  renderer,
   gfm: true,
   breaks: true,
 });
 
 export function renderMarkdown(text: string): string {
-  if (!text) return '';
+  if (!text) { return ''; }
   try {
-    const result = marked.parse(text);
-    if (typeof result === 'string') {
-      return result;
-    }
-    return '';
+    // Pass async:false to guarantee a synchronous string return value
+    return marked.parse(text, { async: false }) as string;
   } catch {
-    // Fallback: escape HTML and return as-is
     return text
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
+      .replace(/>/g, '&gt;');
   }
 }
