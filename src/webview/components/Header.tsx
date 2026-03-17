@@ -1,5 +1,6 @@
 import React from 'react';
 import { vscode } from '../vscode';
+import { GitHubStatus } from '../App';
 
 interface HeaderProps {
   models: string[];
@@ -9,6 +10,9 @@ interface HeaderProps {
   onToggleSidebar: () => void;
   onExport: () => void;
   modelsError: string | null;
+  githubStatus: GitHubStatus;
+  onAddCurrentFile: () => void;
+  onAddWorkspaceContext: () => void;
 }
 
 export function Header({
@@ -19,6 +23,9 @@ export function Header({
   onToggleSidebar,
   onExport,
   modelsError,
+  githubStatus,
+  onAddCurrentFile,
+  onAddWorkspaceContext,
 }: HeaderProps) {
   const handleRefreshModels = () => {
     vscode.postMessage({ type: 'get-models' });
@@ -99,12 +106,32 @@ export function Header({
           )}
         </div>
 
-        <div className="web-search-row">
-          <button className="web-search-btn" disabled title="Coming soon">
-            <span className="icon">🔍</span>
-            Web Search
-            <span className="badge">Coming Soon</span>
+        <div className="context-toolbar">
+          <button
+            className="context-btn"
+            onClick={onAddCurrentFile}
+            title="Add current editor file as context"
+          >
+            <span className="icon">📄</span>
+            <span>Current File</span>
           </button>
+          <button
+            className="context-btn"
+            onClick={onAddWorkspaceContext}
+            title="Add workspace git context (branch, changed files)"
+          >
+            <span className="icon">🔀</span>
+            <span>Git Context</span>
+          </button>
+          {githubStatus.connected && (
+            <span
+              className="github-connected-badge"
+              title={`GitHub: ${githubStatus.user?.login ?? 'connected'}`}
+            >
+              <span className="icon">🐙</span>
+              <span>{githubStatus.user?.login ?? 'GitHub'}</span>
+            </span>
+          )}
         </div>
       </div>
     </header>

@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import * as crypto from 'crypto';
+import * as fs from 'fs';
 import { OllamaService, OllamaMessage } from './OllamaService';
+import { GitHubService } from './GitHubService';
 
 interface Session {
   id: string;
@@ -19,6 +21,15 @@ interface Settings {
   systemPrompt: string;
 }
 
+interface Attachment {
+  id: string;
+  type: 'image' | 'text';
+  base64?: string;
+  content?: string;
+  mimeType: string;
+  name: string;
+}
+
 type IncomingMessage =
   | { type: 'get-models' }
   | { type: 'send'; messages: OllamaMessage[]; model: string; settings?: Partial<Settings> }
@@ -29,15 +40,38 @@ type IncomingMessage =
   | { type: 'get-settings' }
   | { type: 'save-settings'; settings: Partial<Settings> }
   | { type: 'export'; content: string; filename: string }
-  | { type: 'open-panel' };
+  | { type: 'open-panel' }
+  | { type: 'open-file-picker' }
+  | { type: 'github-init' }
+  | { type: 'github-connect'; token: string }
+  | { type: 'github-disconnect' }
+  | { type: 'github-fetch-url'; url: string }
+  | { type: 'github-search'; query: string; repo?: string }
+  | { type: 'get-workspace-context' }
+  | { type: 'get-current-file' };
 
 export class ChatProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
   private _panel?: vscode.WebviewPanel;
   private _ollamaService = new OllamaService();
+  private _gitHubService = new GitHubService();
   private _abortController?: AbortController;
 
-  constructor(private readonly _context: vscode.ExtensionContext) {}
+  constructor(private readonly _context: vscode.ExtensionContext) {
+    // Load stored GitHub token on startup
+    this._initGitHub();
+  }
+
+  private async _initGitHub() {
+    try {
+      const token = await this._context.secrets.get('github-token');
+      if (token) {
+        this._gitHubService.setToken(token);
+      }
+    } catch {
+      // Secrets API may not be available in all environments
+    }
+  }
 
   resolveWebviewView(
     webviewView: vscode.WebviewView,
@@ -114,6 +148,29 @@ export class ChatProvider implements vscode.WebviewViewProvider {
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
+  }
+
+  async getWorkspaceContext() {
+    try {
+      const gitExt = vscode.extensions.getExtension('vscode.git')?.exports;
+      const git = gitExt?.getAPI(1);
+      const repo = git?.repositories[0];
+      return {
+        repoName: repo?.rootUri?.fsPath.split('/').pop() ?? null,
+        branch: repo?.state?.HEAD?.name ?? null,
+        remoteUrl: repo?.state?.remotes?.[0]?.fetchUrl ?? null,
+        changedFiles: repo?.state?.workingTreeChanges?.map((c: any) => c.uri.fsPath) ?? [],
+        stagedFiles: repo?.state?.indexChanges?.map((c: any) => c.uri.fsPath) ?? [],
+      };
+    } catch {
+      return {
+        repoName: null,
+        branch: null,
+        remoteUrl: null,
+        changedFiles: [],
+        stagedFiles: [],
+      };
+    }
   }
 
   private _handleMessages(webview: vscode.Webview) {
@@ -255,6 +312,191 @@ export class ChatProvider implements vscode.WebviewViewProvider {
 
         case 'open-panel': {
           this.openPanel();
+          break;
+        }
+
+        // ===== Feature 1: File picker =====
+        case 'open-file-picker': {
+          const uris = await vscode.window.showOpenDialog({
+            canSelectMany: true,
+            filters: {
+              'Images': ['png', 'jpg', 'jpeg', 'gif', 'webp'],
+              'Text': ['txt', 'md', 'json', 'yaml', 'yml', 'ts', 'js', 'tsx', 'jsx', 'py', 'cs', 'go', 'rs', 'sh', 'css', 'html', 'xml'],
+            },
+          });
+
+          if (!uris || uris.length === 0) break;
+
+          const attachments: Attachment[] = [];
+          for (const uri of uris) {
+            const ext = uri.fsPath.split('.').pop()?.toLowerCase() ?? '';
+            const imageExts = ['png', 'jpg', 'jpeg', 'gif', 'webp'];
+            const name = uri.fsPath.split(/[/\\]/).pop() ?? 'file';
+
+            if (imageExts.includes(ext)) {
+              try {
+                const content = await vscode.workspace.fs.readFile(uri);
+                const base64 = Buffer.from(content).toString('base64');
+                const mimeMap: Record<string, string> = {
+                  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+                  gif: 'image/gif', webp: 'image/webp',
+                };
+                attachments.push({
+                  id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                  type: 'image',
+                  base64,
+                  mimeType: mimeMap[ext] ?? 'image/png',
+                  name,
+                });
+              } catch (err) {
+                vscode.window.showErrorMessage(`Failed to read image: ${name}`);
+              }
+            } else {
+              try {
+                const content = await vscode.workspace.fs.readFile(uri);
+                const text = Buffer.from(content).toString('utf-8');
+                attachments.push({
+                  id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                  type: 'text',
+                  content: text,
+                  mimeType: 'text/plain',
+                  name,
+                });
+              } catch (err) {
+                vscode.window.showErrorMessage(`Failed to read file: ${name}`);
+              }
+            }
+          }
+
+          if (attachments.length > 0) {
+            webview.postMessage({ type: 'files-selected', files: attachments });
+          }
+          break;
+        }
+
+        // ===== Feature 2: GitHub =====
+        case 'github-init': {
+          // Send current connection status back to webview
+          const token = await this._context.secrets.get('github-token').catch(() => undefined);
+          if (token) {
+            this._gitHubService.setToken(token);
+            try {
+              const user = await this._gitHubService.testConnection();
+              webview.postMessage({ type: 'github-status', connected: true, user });
+            } catch {
+              webview.postMessage({ type: 'github-status', connected: false });
+            }
+          } else {
+            webview.postMessage({ type: 'github-status', connected: false });
+          }
+          break;
+        }
+
+        case 'github-connect': {
+          const { token } = message;
+          try {
+            this._gitHubService.setToken(token);
+            const user = await this._gitHubService.testConnection();
+            await this._context.secrets.store('github-token', token);
+            webview.postMessage({ type: 'github-status', connected: true, user });
+          } catch (err) {
+            this._gitHubService.setToken('');
+            webview.postMessage({
+              type: 'github-status',
+              connected: false,
+              error: err instanceof Error ? err.message : String(err),
+            });
+            vscode.window.showErrorMessage(
+              `GitHub connection failed: ${err instanceof Error ? err.message : String(err)}`
+            );
+          }
+          break;
+        }
+
+        case 'github-disconnect': {
+          this._gitHubService.setToken('');
+          await this._context.secrets.delete('github-token').catch(() => {});
+          webview.postMessage({ type: 'github-status', connected: false });
+          break;
+        }
+
+        case 'github-fetch-url': {
+          const { url } = message;
+          try {
+            const urlType = this._gitHubService.detectUrlType(url);
+            let content = '';
+            let label = '';
+
+            if (urlType === 'file') {
+              const result = await this._gitHubService.fetchFileFromUrl(url);
+              content = result.content;
+              label = `${result.repo}/${result.path}`;
+            } else if (urlType === 'pr') {
+              const result = await this._gitHubService.fetchPR(url);
+              const parts = [`# PR: ${result.title}`, '', result.body];
+              if (result.diff) {
+                parts.push('', '## Diff', '```diff', result.diff, '```');
+              }
+              if (result.comments.length > 0) {
+                parts.push('', '## Comments', ...result.comments);
+              }
+              content = parts.join('\n');
+              label = `PR: ${result.title.slice(0, 40)}`;
+            } else if (urlType === 'issue') {
+              const result = await this._gitHubService.fetchIssue(url);
+              const parts = [`# Issue: ${result.title}`, '', result.body];
+              if (result.comments.length > 0) {
+                parts.push('', '## Comments', ...result.comments);
+              }
+              content = parts.join('\n');
+              label = `Issue: ${result.title.slice(0, 40)}`;
+            } else {
+              throw new Error('Unrecognized GitHub URL format. Supported: file blob, PR, issue URLs.');
+            }
+
+            webview.postMessage({ type: 'github-content', content, label });
+          } catch (err) {
+            vscode.window.showErrorMessage(
+              `GitHub fetch failed: ${err instanceof Error ? err.message : String(err)}`
+            );
+          }
+          break;
+        }
+
+        case 'github-search': {
+          const { query, repo } = message;
+          try {
+            const result = await this._gitHubService.searchCode(query, repo);
+            webview.postMessage({ type: 'github-search-results', items: result.items });
+          } catch (err) {
+            vscode.window.showErrorMessage(
+              `GitHub search failed: ${err instanceof Error ? err.message : String(err)}`
+            );
+          }
+          break;
+        }
+
+        case 'get-workspace-context': {
+          const ctx = await this.getWorkspaceContext();
+          webview.postMessage({ type: 'workspace-context', context: ctx });
+          break;
+        }
+
+        case 'get-current-file': {
+          const editor = vscode.window.activeTextEditor;
+          if (!editor) {
+            vscode.window.showWarningMessage('No active editor found.');
+            break;
+          }
+          const doc = editor.document;
+          const content = doc.getText();
+          const name = doc.fileName.split(/[/\\]/).pop() ?? 'file';
+          const language = doc.languageId;
+          // Truncate very large files
+          const truncated = content.length > 50000
+            ? content.slice(0, 50000) + '\n... [file truncated]'
+            : content;
+          webview.postMessage({ type: 'current-file', name, content: truncated, language });
           break;
         }
       }

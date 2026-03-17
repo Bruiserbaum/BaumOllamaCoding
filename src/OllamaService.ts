@@ -1,6 +1,7 @@
 export interface OllamaMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
+  images?: string[]; // base64 image strings for vision models
 }
 
 export interface OllamaOptions {
@@ -44,6 +45,18 @@ export class OllamaService {
   ): Promise<void> {
     const url = `${serverUrl.replace(/\/$/, '')}/api/chat`;
 
+    // Build messages for Ollama API, including images when present
+    const ollamaMessages = messages.map((m) => {
+      const msg: Record<string, unknown> = {
+        role: m.role,
+        content: m.content,
+      };
+      if (m.images && m.images.length > 0) {
+        msg['images'] = m.images;
+      }
+      return msg;
+    });
+
     let response: Response;
     try {
       response = await fetch(url, {
@@ -51,7 +64,7 @@ export class OllamaService {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model,
-          messages,
+          messages: ollamaMessages,
           stream: true,
           options: {
             temperature: options.temperature,

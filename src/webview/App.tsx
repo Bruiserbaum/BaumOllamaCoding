@@ -5,6 +5,7 @@ import { ChatWindow } from './components/ChatWindow';
 import { ChatInput } from './components/ChatInput';
 import { SettingsPanel } from './components/SettingsPanel';
 import { HistorySidebar } from './components/HistorySidebar';
+import { Attachment } from './components/AttachmentList';
 
 export interface Message {
   id: string;
@@ -12,6 +13,7 @@ export interface Message {
   content: string;
   thought?: string;
   timestamp: number;
+  attachments?: Attachment[];
 }
 
 export interface Session {
@@ -35,6 +37,19 @@ export interface StreamingMessage {
   content: string;
   thought: string;
   isThinking: boolean;
+}
+
+export interface GitHubStatus {
+  connected: boolean;
+  user?: { login: string; name: string };
+}
+
+export interface WorkspaceContext {
+  repoName: string | null;
+  branch: string | null;
+  remoteUrl: string | null;
+  changedFiles: string[];
+  stagedFiles: string[];
 }
 
 const defaultSettings: Settings = {
@@ -62,14 +77,27 @@ export function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [modelsError, setModelsError] = useState<string | null>(null);
 
+  // GitHub state
+  const [githubStatus, setGithubStatus] = useState<GitHubStatus>({ connected: false });
+
+  // Pending attachments to inject into ChatInput (from file picker / github fetch)
+  const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
+
   const currentSession = sessions.find((s) => s.id === currentSessionId) ?? null;
   const messages = currentSession?.messages ?? [];
+
+  // Keep a ref for finalizeStreamingMessage to always have fresh session state
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
+  const currentSessionIdRef = useRef(currentSessionId);
+  currentSessionIdRef.current = currentSessionId;
 
   // Request initial data on mount
   useEffect(() => {
     vscode.postMessage({ type: 'get-models' });
     vscode.postMessage({ type: 'get-sessions' });
     vscode.postMessage({ type: 'get-settings' });
+    vscode.postMessage({ type: 'github-init' });
   }, []);
 
   // Message listener
@@ -145,6 +173,93 @@ export function App() {
           startNewChat();
           break;
         }
+        // Feature 1: file picker result
+        case 'files-selected': {
+          const files = msg.files as Attachment[];
+          if (files && files.length > 0) {
+            setPendingAttachments((prev) => [...prev, ...files]);
+          }
+          break;
+        }
+        // Feature 2: GitHub status
+        case 'github-status': {
+          setGithubStatus({
+            connected: msg.connected as boolean,
+            user: msg.user as { login: string; name: string } | undefined,
+          });
+          break;
+        }
+        // Feature 2: GitHub content fetched (PR, issue, file)
+        case 'github-content': {
+          const content = msg.content as string;
+          const label = msg.label as string;
+          const att: Attachment = {
+            id: generateId(),
+            type: 'text',
+            content,
+            mimeType: 'text/plain',
+            name: label,
+          };
+          setPendingAttachments((prev) => [...prev, att]);
+          break;
+        }
+        // Feature 2: current file from editor
+        case 'current-file': {
+          const name = msg.name as string;
+          const fileContent = msg.content as string;
+          const language = msg.language as string;
+          const att: Attachment = {
+            id: generateId(),
+            type: 'text',
+            content: `\`\`\`${language}\n${fileContent}\n\`\`\``,
+            mimeType: 'text/plain',
+            name,
+          };
+          setPendingAttachments((prev) => [...prev, att]);
+          break;
+        }
+        // Feature 2: workspace context
+        case 'workspace-context': {
+          const ctx = msg.context as WorkspaceContext;
+          const lines: string[] = ['**Workspace Context:**'];
+          if (ctx.repoName) lines.push(`- Repo: ${ctx.repoName}`);
+          if (ctx.branch) lines.push(`- Branch: ${ctx.branch}`);
+          if (ctx.remoteUrl) lines.push(`- Remote: ${ctx.remoteUrl}`);
+          if (ctx.changedFiles.length > 0) {
+            lines.push(`- Changed files:\n${ctx.changedFiles.map((f) => `  - ${f}`).join('\n')}`);
+          }
+          if (ctx.stagedFiles.length > 0) {
+            lines.push(`- Staged files:\n${ctx.stagedFiles.map((f) => `  - ${f}`).join('\n')}`);
+          }
+          const att: Attachment = {
+            id: generateId(),
+            type: 'text',
+            content: lines.join('\n'),
+            mimeType: 'text/plain',
+            name: 'workspace-context.md',
+          };
+          setPendingAttachments((prev) => [...prev, att]);
+          break;
+        }
+        // Feature 2: github search results
+        case 'github-search-results': {
+          const items = msg.items as Array<{ path: string; repo: string; snippet: string }>;
+          const lines = ['**GitHub Code Search Results:**', ''];
+          for (const item of items) {
+            lines.push(`**${item.repo}** — \`${item.path}\``);
+            if (item.snippet) lines.push(`> ${item.snippet}`);
+            lines.push('');
+          }
+          const att: Attachment = {
+            id: generateId(),
+            type: 'text',
+            content: lines.join('\n'),
+            mimeType: 'text/plain',
+            name: 'github-search.md',
+          };
+          setPendingAttachments((prev) => [...prev, att]);
+          break;
+        }
       }
     };
 
@@ -163,20 +278,16 @@ export function App() {
     };
 
     setSessions((prevSessions) => {
-      let updatedSessions: Session[];
+      const sid = currentSessionIdRef.current;
+      if (!sid) return prevSessions;
 
-      if (!currentSessionId) {
-        return prevSessions;
-      }
-
-      updatedSessions = prevSessions.map((s) => {
-        if (s.id === currentSessionId) {
+      const updatedSessions = prevSessions.map((s) => {
+        if (s.id === sid) {
           const updated: Session = {
             ...s,
             messages: [...s.messages, assistantMsg],
             updatedAt: Date.now(),
           };
-          // Save to extension host
           vscode.postMessage({ type: 'save-session', session: updated });
           return updated;
         }
@@ -193,24 +304,35 @@ export function App() {
     setIsStreaming(false);
   };
 
-  const sendMessage = (text: string) => {
-    if (!text.trim() || !selectedModel || isStreaming) return;
+  const sendMessage = (text: string, attachments: Attachment[]) => {
+    const hasContent = text.trim() || attachments.length > 0;
+    if (!hasContent || !selectedModel || isStreaming) return;
+
+    // Build the user message content: prepend text attachments as code blocks
+    let fullContent = text.trim();
+    for (const att of attachments) {
+      if (att.type === 'text' && att.content) {
+        const ext = att.name.includes('.') ? att.name.split('.').pop() ?? '' : '';
+        fullContent = `\`\`\`${ext}\n// ${att.name}\n${att.content}\n\`\`\`\n\n${fullContent}`;
+      }
+    }
+    fullContent = fullContent.trim();
 
     const userMsg: Message = {
       id: generateId(),
       role: 'user',
-      content: text.trim(),
+      content: fullContent || '(attached files)',
       timestamp: Date.now(),
+      attachments: attachments.length > 0 ? attachments : undefined,
     };
 
     let sessionId = currentSessionId;
     let updatedSessions = sessions;
 
     if (!sessionId) {
-      // Create new session
       const newSession: Session = {
         id: generateId(),
-        title: text.trim().slice(0, 50) || 'New Chat',
+        title: (fullContent || attachments[0]?.name || 'New Chat').slice(0, 50),
         messages: [userMsg],
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -240,6 +362,10 @@ export function App() {
     const ollamaMessages = (currentSess?.messages ?? []).map((m) => ({
       role: m.role as 'user' | 'assistant',
       content: m.content,
+      // Pass images from the last user message only (most recent)
+      ...(m.id === userMsg.id && attachments.some((a) => a.type === 'image')
+        ? { images: attachments.filter((a) => a.type === 'image' && a.base64).map((a) => a.base64 as string) }
+        : {}),
     }));
 
     setStreamingMessage({ content: '', thought: '', isThinking: false });
@@ -312,6 +438,9 @@ export function App() {
           onToggleSidebar={() => setIsSidebarOpen((v) => !v)}
           onExport={exportChat}
           modelsError={modelsError}
+          githubStatus={githubStatus}
+          onAddCurrentFile={() => vscode.postMessage({ type: 'get-current-file' })}
+          onAddWorkspaceContext={() => vscode.postMessage({ type: 'get-workspace-context' })}
         />
         <ChatWindow
           messages={messages}
@@ -323,6 +452,9 @@ export function App() {
           onStop={stopStreaming}
           isStreaming={isStreaming}
           disabled={!selectedModel}
+          selectedModel={selectedModel}
+          pendingAttachments={pendingAttachments}
+          onClearPendingAttachments={() => setPendingAttachments([])}
         />
       </div>
       {isSettingsOpen && (
@@ -334,6 +466,17 @@ export function App() {
           }}
           onClose={() => setIsSettingsOpen(false)}
           serverUrl={settings.serverUrl}
+          githubStatus={githubStatus}
+          onGithubConnect={(token) => vscode.postMessage({ type: 'github-connect', token })}
+          onGithubDisconnect={() => vscode.postMessage({ type: 'github-disconnect' })}
+          onGithubFetchUrl={(url) => {
+            vscode.postMessage({ type: 'github-fetch-url', url });
+            setIsSettingsOpen(false);
+          }}
+          onGithubSearch={(query, repo) => {
+            vscode.postMessage({ type: 'github-search', query, repo });
+            setIsSettingsOpen(false);
+          }}
         />
       )}
     </div>

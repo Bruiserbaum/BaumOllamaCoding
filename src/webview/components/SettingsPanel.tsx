@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Settings } from '../App';
+import { Settings, GitHubStatus } from '../App';
 import { vscode } from '../vscode';
 
 interface SettingsPanelProps {
@@ -7,6 +7,11 @@ interface SettingsPanelProps {
   onSave: (settings: Partial<Settings>) => void;
   onClose: () => void;
   serverUrl: string;
+  githubStatus: GitHubStatus;
+  onGithubConnect: (token: string) => void;
+  onGithubDisconnect: () => void;
+  onGithubFetchUrl: (url: string) => void;
+  onGithubSearch: (query: string, repo?: string) => void;
 }
 
 type Preset = 'fast' | 'balanced' | 'quality';
@@ -19,10 +24,26 @@ const PRESETS: Record<Preset, { temperature: number; maxTokens: number; label: s
 
 const KEEP_ALIVE_OPTIONS = ['5m', '15m', '30m', '1h', '2h', '-1'];
 
-export function SettingsPanel({ settings, onSave, onClose }: SettingsPanelProps) {
+export function SettingsPanel({
+  settings,
+  onSave,
+  onClose,
+  githubStatus,
+  onGithubConnect,
+  onGithubDisconnect,
+  onGithubFetchUrl,
+  onGithubSearch,
+}: SettingsPanelProps) {
   const [local, setLocal] = useState<Settings>({ ...settings });
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle');
   const [testError, setTestError] = useState('');
+
+  // GitHub state
+  const [githubToken, setGithubToken] = useState('');
+  const [githubConnecting, setGithubConnecting] = useState(false);
+  const [githubFetchUrl, setGithubFetchUrl] = useState('');
+  const [githubSearchQuery, setGithubSearchQuery] = useState('');
+  const [githubSearchRepo, setGithubSearchRepo] = useState('');
 
   const update = <K extends keyof Settings>(key: K, value: Settings[K]) => {
     setLocal((prev) => ({ ...prev, [key]: value }));
@@ -54,6 +75,27 @@ export function SettingsPanel({ settings, onSave, onClose }: SettingsPanelProps)
 
   const handleSave = () => {
     onSave(local);
+  };
+
+  const handleGithubConnect = () => {
+    if (!githubToken.trim()) return;
+    setGithubConnecting(true);
+    onGithubConnect(githubToken.trim());
+    setGithubToken('');
+    // Reset connecting state after a short delay (actual state comes from message)
+    setTimeout(() => setGithubConnecting(false), 3000);
+  };
+
+  const handleGithubFetch = () => {
+    if (!githubFetchUrl.trim()) return;
+    onGithubFetchUrl(githubFetchUrl.trim());
+    setGithubFetchUrl('');
+  };
+
+  const handleGithubSearch = () => {
+    if (!githubSearchQuery.trim()) return;
+    onGithubSearch(githubSearchQuery.trim(), githubSearchRepo.trim() || undefined);
+    setGithubSearchQuery('');
   };
 
   return (
@@ -190,6 +232,105 @@ export function SettingsPanel({ settings, onSave, onClose }: SettingsPanelProps)
               placeholder="Optional system prompt to guide model behavior..."
               rows={4}
             />
+          </div>
+
+          {/* ===== GitHub Section ===== */}
+          <div className="settings-section settings-section--github">
+            <label className="settings-label settings-label--section">GitHub Integration</label>
+
+            {githubStatus.connected ? (
+              <div className="github-connected">
+                <span className="github-connected-info">
+                  Connected as <strong>{githubStatus.user?.login ?? 'unknown'}</strong>
+                  {githubStatus.user?.name ? ` (${githubStatus.user.name})` : ''}
+                </span>
+                <button
+                  className="btn-small btn-small--error"
+                  onClick={onGithubDisconnect}
+                >
+                  Disconnect
+                </button>
+              </div>
+            ) : (
+              <div className="github-connect-form">
+                <div className="settings-row">
+                  <input
+                    type="password"
+                    className="settings-input"
+                    value={githubToken}
+                    onChange={(e) => setGithubToken(e.target.value)}
+                    placeholder="GitHub Personal Access Token"
+                    onKeyDown={(e) => e.key === 'Enter' && handleGithubConnect()}
+                  />
+                  <button
+                    className="btn-small"
+                    onClick={handleGithubConnect}
+                    disabled={!githubToken.trim() || githubConnecting}
+                  >
+                    {githubConnecting ? '...' : 'Connect'}
+                  </button>
+                </div>
+                <div className="settings-hint">
+                  Token needs <code>repo</code> scope. Stored securely in VS Code secrets.
+                </div>
+              </div>
+            )}
+
+            {githubStatus.connected && (
+              <>
+                {/* Fetch URL */}
+                <div className="github-subsection">
+                  <label className="settings-sublabel">Fetch GitHub URL</label>
+                  <div className="settings-row">
+                    <input
+                      type="text"
+                      className="settings-input"
+                      value={githubFetchUrl}
+                      onChange={(e) => setGithubFetchUrl(e.target.value)}
+                      placeholder="https://github.com/owner/repo/blob/main/file.ts"
+                      onKeyDown={(e) => e.key === 'Enter' && handleGithubFetch()}
+                    />
+                    <button
+                      className="btn-small"
+                      onClick={handleGithubFetch}
+                      disabled={!githubFetchUrl.trim()}
+                    >
+                      Fetch
+                    </button>
+                  </div>
+                </div>
+
+                {/* Search Code */}
+                <div className="github-subsection">
+                  <label className="settings-sublabel">Search Code</label>
+                  <input
+                    type="text"
+                    className="settings-input"
+                    value={githubSearchQuery}
+                    onChange={(e) => setGithubSearchQuery(e.target.value)}
+                    placeholder="Search query..."
+                    style={{ marginBottom: 4 }}
+                  />
+                  <div className="settings-row">
+                    <input
+                      type="text"
+                      className="settings-input"
+                      value={githubSearchRepo}
+                      onChange={(e) => setGithubSearchRepo(e.target.value)}
+                      placeholder="owner/repo (optional)"
+                      onKeyDown={(e) => e.key === 'Enter' && handleGithubSearch()}
+                    />
+                    <button
+                      className="btn-small"
+                      onClick={handleGithubSearch}
+                      disabled={!githubSearchQuery.trim()}
+                    >
+                      Search
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
