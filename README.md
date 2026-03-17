@@ -1,159 +1,115 @@
 # BaumOllamaCoding
 
-A dark-themed local Ollama chat interface with streaming responses, multi-model support, and thought process visualization.
+A VS Code extension for chatting with a local [Ollama](https://ollama.com) server directly in the sidebar — with streaming responses, thought process visualization, multi-model support, persistent chat history, and a fully theme-integrated UI.
 
 ## Features
 
-- **Streaming Chat** — Real-time streaming from Ollama `/api/chat` with AbortController stop support
-- **Thought Process Visualization** — Parses `<think>...</think>` tags during streaming and displays them in a collapsible, green-tinted panel (ideal for reasoning models like DeepSeek R1, QwQ)
-- **Model Selection** — Fetches available models from `/api/tags` and lets you switch mid-session
-- **Chat History** — Sessions stored in `localStorage` with auto-titling from first message, create/delete sessions
-- **Settings Panel** — Server URL, performance presets, temperature, max tokens, keep_alive, system prompt
-- **Export** — Download any session as JSON or Markdown
-- **Markdown Rendering** — Full GFM markdown with syntax highlighting (Dracula theme via highlight.js)
-- **Copy Code Buttons** — Every code block has a one-click copy button
-- **Web Search** — Coming Soon badge in UI (placeholder for future integration)
-- **Fully Responsive** — Works on desktop and mobile
+- **Streaming chat** — responses stream token-by-token in real time
+- **Thought process visualization** — models that emit `<think>...</think>` blocks (e.g. QwQ, DeepSeek-R1) show a collapsible "Thought Process" panel that auto-expands while thinking and collapses when done
+- **Multi-model support** — pick any installed Ollama model from a dropdown; refresh with one click
+- **Persistent chat history** — sessions stored in VS Code global state, survive restarts
+- **Sidebar + panel mode** — use as a sidebar view or pop out into a full editor panel
+- **Markdown rendering** — assistant responses render with syntax-highlighted code blocks and copy buttons
+- **Settings panel** — configure server URL, temperature, max tokens, keep-alive, system prompt; test connection inline
+- **Performance presets** — Fast / Balanced / Quality one-click presets
+- **Export chat** — save any conversation as Markdown via a save dialog
+- **VS Code theme integration** — uses VS Code CSS variables throughout; looks native in any theme
+
+## Installation
+
+### From VSIX
+
+1. Download the latest `.vsix` from [Releases](https://github.com/Bruiserbaum/BaumOllamaCoding/releases)
+2. In VS Code: `Ctrl+Shift+P` → "Extensions: Install from VSIX..." → select the file
+3. The ◈ icon appears in the Activity Bar
+
+### Build from source
+
+```bash
+git clone https://github.com/Bruiserbaum/BaumOllamaCoding
+cd BaumOllamaCoding
+npm install
+npm run build
+npm run package   # creates baumollamacoding-1.0.0.vsix
+# Then in VS Code: Ctrl+Shift+P → "Extensions: Install from VSIX..."
+```
+
+## Ollama Setup
+
+1. Install Ollama: https://ollama.com/download
+2. Pull a model:
+   ```bash
+   ollama pull llama3.2          # general purpose
+   ollama pull qwq:32b           # reasoning with <think> blocks
+   ollama pull deepseek-r1:14b   # another reasoning model
+   ollama pull codellama         # coding focused
+   ```
+3. Ollama runs at `http://localhost:11434` by default — matches the extension default
+
+## Thought Process Visualization
+
+Models like [QwQ](https://ollama.com/library/qwq) and [DeepSeek-R1](https://ollama.com/library/deepseek-r1) wrap their internal reasoning in `<think>...</think>` XML tags before giving a final answer. BaumOllamaCoding detects these tags in the stream and displays them in a separate collapsible "Thought Process" panel (💭) so you can see _why_ the model reached its conclusion without cluttering the main response.
+
+The panel auto-expands while the model is thinking and collapses automatically ~1.5 seconds after the stream ends.
+
+## Settings Reference
+
+| Setting | Default | Description |
+|---|---|---|
+| `baumollamacoding.serverUrl` | `http://localhost:11434` | Ollama server URL |
+| `baumollamacoding.defaultModel` | _(empty)_ | Model selected on startup |
+| `baumollamacoding.temperature` | `0.7` | Sampling temperature (0 = deterministic, 1 = creative) |
+| `baumollamacoding.maxTokens` | `2048` | Maximum tokens to generate per response |
+| `baumollamacoding.keepAlive` | `30m` | How long Ollama keeps the model loaded in memory |
+
+Additional settings (system prompt) are stored in VS Code global state via the Settings panel.
 
 ## Performance Modes
 
-| Mode | Temperature | Max Tokens | Keep Alive |
-|------|-------------|------------|------------|
-| Fast | 0.1 | 512 | 5 min |
-| Balanced | 0.7 | 2,048 | 30 min |
-| Quality | 0.8 | 4,096 | 60 min |
+| Mode | Temperature | Max Tokens | Best for |
+|---|---|---|---|
+| Fast | 0.3 | 512 | Quick answers, autocomplete suggestions |
+| Balanced | 0.7 | 2048 | General use (default) |
+| Quality | 0.9 | 4096 | Creative writing, complex reasoning |
 
-You can also override individual parameters (temperature, max tokens, keep alive) independently.
+## Commands
 
-## Setup
+| Command | Description |
+|---|---|
+| `BaumOllamaCoding: Open in Panel` | Opens the chat in an editor panel instead of the sidebar |
+| `BaumOllamaCoding: New Chat` | Starts a fresh conversation |
 
-### Prerequisites
+## Architecture Notes
 
-- [Node.js 18+](https://nodejs.org/)
-- [Ollama](https://ollama.ai/) running locally
+The extension uses VS Code's standard two-context architecture:
 
-### Development
+- **Extension host** (`src/extension.ts`, `src/ChatProvider.ts`, `src/OllamaService.ts`) — Node.js, makes all Ollama HTTP calls, streams results to webview via `postMessage`
+- **Webview** (`src/webview/`) — React 18 app, receives streamed chunks, renders UI
 
-```bash
-git clone https://github.com/Bruiserbaum/BaumOllamaCoding.git
-cd BaumOllamaCoding
-npm install
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000).
-
-### Production Build
-
-```bash
-npm run build
-npm run preview
-```
-
-### Docker
-
-```bash
-docker build -t baumollamacoding .
-docker run -p 8080:80 baumollamacoding
-```
-
-Open [http://localhost:8080](http://localhost:8080).
-
-## Ollama Configuration
-
-BaumOllamaCoding connects to Ollama on `http://localhost:11434` by default.
-
-If running inside Docker or on a different host, update the **Server URL** in Settings.
-
-### CORS — Required for Docker/Remote setups
-
-Ollama must allow requests from your frontend's origin. Set the `OLLAMA_ORIGINS` environment variable:
-
-```bash
-# Allow all origins (development)
-OLLAMA_ORIGINS=* ollama serve
-
-# Allow specific origin
-OLLAMA_ORIGINS=http://localhost:8080 ollama serve
-```
-
-On Windows, set it in System Environment Variables and restart Ollama.
-
-### Recommended Models
-
-```bash
-# General purpose
-ollama pull llama3.2
-ollama pull mistral
-
-# Coding
-ollama pull codellama
-ollama pull deepseek-coder-v2
-
-# Reasoning (thought process visualization)
-ollama pull deepseek-r1
-ollama pull qwq
-```
-
-Reasoning models that emit `<think>...</think>` blocks will automatically display a collapsible "Thought Process" panel above their response.
-
-## Thought Process Feature
-
-Models like DeepSeek R1 and QwQ emit their internal reasoning inside `<think>...</think>` XML tags. BaumOllamaCoding:
-
-1. Detects these tags during the streaming response
-2. Routes thought content to a separate accumulator in real-time
-3. Displays a collapsible "Thought Process" panel (auto-expanded while thinking, with animated dots)
-4. Shows the clean response below the thought panel after `</think>` is closed
-
-## Docker Compose — BaumDocker ai-stack Integration
-
-Add to your `docker-compose.yml`:
-
-```yaml
-services:
-  ollama:
-    image: ollama/ollama
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    environment:
-      - OLLAMA_ORIGINS=http://baumollamacoding:80
-    restart: unless-stopped
-
-  baumollamacoding:
-    build: ./BaumOllamaCoding
-    ports:
-      - "3010:80"
-    depends_on:
-      - ollama
-    restart: unless-stopped
-
-volumes:
-  ollama_data:
-```
-
-Then set the Server URL in Settings to `http://ollama:11434`.
+This means Ollama API calls never happen in the browser context, avoiding CORS issues entirely.
 
 ## Project Structure
 
 ```
 src/
-  components/
-    Header.jsx          — Model selector, web search button, settings toggle
-    ChatWindow.jsx      — Scrollable message list, empty state
-    MessageBubble.jsx   — User/assistant bubbles with thought process
-    ChatInput.jsx       — Auto-resize textarea, send/stop button
-    SettingsPanel.jsx   — Slide-in settings drawer
-    HistorySidebar.jsx  — Session list with new/delete
-  hooks/
-    useOllama.js        — Streaming fetch hook with think-tag state machine
-  utils/
-    storage.js          — localStorage helpers + performance presets
-    markdown.js         — marked + highlight.js renderer with copy buttons
-  styles/
-    app.css             — Complete dark theme CSS
+  extension.ts          — Activation, registers view provider + commands
+  ChatProvider.ts       — WebviewViewProvider, message routing, session/settings storage
+  OllamaService.ts      — Ollama HTTP client with streaming + <think> state machine
+  webview/
+    main.tsx            — React 18 createRoot entry point
+    App.tsx             — Root component, state management
+    vscode.ts           — acquireVsCodeApi() bridge
+    components/
+      Header.tsx        — Model selector, toolbar buttons
+      ChatWindow.tsx    — Scrollable message list
+      MessageBubble.tsx — User/assistant bubbles with thought process panel
+      ChatInput.tsx     — Auto-resize textarea, send/stop toggle
+      SettingsPanel.tsx — Slide-in settings drawer
+      HistorySidebar.tsx — Session list with new/delete
+    utils/
+      markdown.ts       — marked + highlight.js renderer with copy buttons
+    styles/
+      app.css           — VS Code variable-based theme
 ```
 
 ## License

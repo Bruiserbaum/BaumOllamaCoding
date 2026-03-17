@@ -1,20 +1,83 @@
 {
   "name": "baumollamacoding",
+  "displayName": "BaumOllamaCoding",
+  "description": "Local Ollama chat with streaming, multi-model support, and thought process visualization",
   "version": "1.0.0",
-  "type": "module",
+  "publisher": "Bruiserbaum",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Machine Learning", "Other"],
+  "icon": "resources/icon.png",
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [{
+        "id": "baumollamacoding",
+        "title": "BaumOllamaCoding",
+        "icon": "resources/icon.svg"
+      }]
+    },
+    "views": {
+      "baumollamacoding": [{
+        "type": "webview",
+        "id": "baumollamacoding.chatView",
+        "name": "Chat"
+      }]
+    },
+    "commands": [
+      { "command": "baumollamacoding.openPanel", "title": "BaumOllamaCoding: Open in Panel" },
+      { "command": "baumollamacoding.newChat", "title": "BaumOllamaCoding: New Chat" }
+    ],
+    "configuration": {
+      "title": "BaumOllamaCoding",
+      "properties": {
+        "baumollamacoding.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:11434",
+          "description": "Ollama server URL"
+        },
+        "baumollamacoding.defaultModel": {
+          "type": "string",
+          "default": "",
+          "description": "Default model to use"
+        },
+        "baumollamacoding.temperature": {
+          "type": "number",
+          "default": 0.7,
+          "description": "Model temperature (0-1)"
+        },
+        "baumollamacoding.maxTokens": {
+          "type": "number",
+          "default": 2048,
+          "description": "Max tokens per response"
+        },
+        "baumollamacoding.keepAlive": {
+          "type": "string",
+          "default": "30m",
+          "description": "Ollama keep-alive duration"
+        }
+      }
+    }
+  },
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "vscode:prepublish": "node esbuild.mjs --production",
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.4.0"
   },
   "dependencies": {
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "marked": "^12.0.0",
     "highlight.js": "^11.9.0"
-  },
-  "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.1",
-    "vite": "^5.4.0"
   }
 }
