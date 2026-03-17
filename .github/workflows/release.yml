@@ -1,0 +1,67 @@
+name: Build and Release VSIX
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. 1.0.0)'
+        required: true
+        default: '1.0.0'
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build extension
+        run: node esbuild.mjs --production
+
+      - name: Package VSIX
+        run: npx @vscode/vsce package --no-dependencies
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
+          body: |
+            ## BaumOllamaCoding v${{ steps.version.outputs.version }}
+
+            Local Ollama chat interface for VS Code with streaming, multi-model support, and thought process visualization.
+
+            ### Install
+            1. Download `baumollamacoding-${{ steps.version.outputs.version }}.vsix` below
+            2. In VS Code: **Extensions → `...` → Install from VSIX**
+            3. Configure your Ollama server URL in VS Code settings (`baumollamacoding.serverUrl`)
+
+            ### Requirements
+            - VS Code 1.85+
+            - Ollama running locally or on your network
+          files: "*.vsix"
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
