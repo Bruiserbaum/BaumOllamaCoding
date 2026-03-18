@@ -26,7 +26,8 @@
     },
     "commands": [
       { "command": "baumollamacoding.openPanel", "title": "BaumOllamaCoding: Open in Panel" },
-      { "command": "baumollamacoding.newChat", "title": "BaumOllamaCoding: New Chat" }
+      { "command": "baumollamacoding.newChat", "title": "BaumOllamaCoding: New Chat" },
+      { "command": "baumollamacoding.openHandsPanel", "title": "BaumOllamaCoding: Open OpenHands Agent" }
     ],
     "configuration": {
       "title": "BaumOllamaCoding",
@@ -55,6 +56,11 @@
           "type": "string",
           "default": "30m",
           "description": "Ollama keep-alive duration"
+        },
+        "baumollamacoding.openHandsUrl": {
+          "type": "string",
+          "default": "http://localhost:3002",
+          "description": "OpenHands agent URL (set to your BaumDocker host if running remotely)"
         }
       }
     }

@@ -9,7 +9,8 @@ export function activate(context: vscode.ExtensionContext) {
       webviewOptions: { retainContextWhenHidden: true },
     }),
     vscode.commands.registerCommand('baumollamacoding.openPanel', () => provider.openPanel()),
-    vscode.commands.registerCommand('baumollamacoding.newChat', () => provider.newChat())
+    vscode.commands.registerCommand('baumollamacoding.newChat', () => provider.newChat()),
+    vscode.commands.registerCommand('baumollamacoding.openHandsPanel', () => provider.openHandsPanel())
   );
 }
 

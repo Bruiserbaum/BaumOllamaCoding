@@ -19,6 +19,7 @@ interface Settings {
   maxTokens: number;
   keepAlive: string;
   systemPrompt: string;
+  openHandsUrl: string;
 }
 
 interface Attachment {
@@ -48,7 +49,8 @@ type IncomingMessage =
   | { type: 'github-fetch-url'; url: string }
   | { type: 'github-search'; query: string; repo?: string }
   | { type: 'get-workspace-context' }
-  | { type: 'get-current-file' };
+  | { type: 'get-current-file' }
+  | { type: 'open-openhands' };
 
 export class ChatProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
@@ -113,6 +115,12 @@ export class ChatProvider implements vscode.WebviewViewProvider {
   newChat() {
     const activeWebview = this._panel?.webview ?? this._view?.webview;
     activeWebview?.postMessage({ type: 'new-chat' });
+  }
+
+  openHandsPanel() {
+    const cfg = vscode.workspace.getConfiguration('baumollamacoding');
+    const url = cfg.get<string>('openHandsUrl', 'http://localhost:3002');
+    vscode.commands.executeCommand('simpleBrowser.show', url);
   }
 
   private _setupWebview(webview: vscode.Webview) {
@@ -265,6 +273,7 @@ export class ChatProvider implements vscode.WebviewViewProvider {
             maxTokens: cfg.get<number>('maxTokens', 2048),
             keepAlive: cfg.get<string>('keepAlive', '30m'),
             systemPrompt: storedExtra.systemPrompt ?? '',
+            openHandsUrl: cfg.get<string>('openHandsUrl', 'http://localhost:3002'),
           };
           webview.postMessage({ type: 'settings', settings });
           break;
@@ -291,6 +300,9 @@ export class ChatProvider implements vscode.WebviewViewProvider {
           }
           if (s.systemPrompt !== undefined) {
             await this._context.globalState.update('extraSettings', { systemPrompt: s.systemPrompt });
+          }
+          if (s.openHandsUrl !== undefined) {
+            await cfg.update('openHandsUrl', s.openHandsUrl, vscode.ConfigurationTarget.Global);
           }
 
           webview.postMessage({ type: 'settings-saved' });
@@ -479,6 +491,11 @@ export class ChatProvider implements vscode.WebviewViewProvider {
         case 'get-workspace-context': {
           const ctx = await this.getWorkspaceContext();
           webview.postMessage({ type: 'workspace-context', context: ctx });
+          break;
+        }
+
+        case 'open-openhands': {
+          this.openHandsPanel();
           break;
         }
 

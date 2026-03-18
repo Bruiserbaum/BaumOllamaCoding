@@ -13,6 +13,7 @@ interface HeaderProps {
   githubStatus: GitHubStatus;
   onAddCurrentFile: () => void;
   onAddWorkspaceContext: () => void;
+  onOpenHands: () => void;
 }
 
 export function Header({
@@ -26,6 +27,7 @@ export function Header({
   githubStatus,
   onAddCurrentFile,
   onAddWorkspaceContext,
+  onOpenHands,
 }: HeaderProps) {
   const handleRefreshModels = () => {
     vscode.postMessage({ type: 'get-models' });
@@ -59,6 +61,13 @@ export function Header({
             title="Open in Panel"
           >
             <span className="icon">⊞</span>
+          </button>
+          <button
+            className="icon-btn"
+            onClick={onOpenHands}
+            title="Open OpenHands Agent"
+          >
+            <span className="icon">🤖</span>
           </button>
           <button
             className="icon-btn"

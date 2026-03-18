@@ -234,6 +234,30 @@ export function SettingsPanel({
             />
           </div>
 
+          {/* ===== OpenHands Section ===== */}
+          <div className="settings-section">
+            <label className="settings-label settings-label--section">OpenHands Agent</label>
+            <label className="settings-label">OpenHands URL</label>
+            <div className="settings-row">
+              <input
+                type="text"
+                className="settings-input"
+                value={local.openHandsUrl}
+                onChange={(e) => update('openHandsUrl', e.target.value)}
+                placeholder="http://localhost:3002"
+              />
+              <button
+                className="btn-small"
+                onClick={() => vscode.postMessage({ type: 'open-openhands' })}
+              >
+                Open
+              </button>
+            </div>
+            <div className="settings-hint">
+              OpenHands AI coding agent — runs tasks autonomously using your Ollama models.
+            </div>
+          </div>
+
           {/* ===== GitHub Section ===== */}
           <div className="settings-section settings-section--github">
             <label className="settings-label settings-label--section">GitHub Integration</label>

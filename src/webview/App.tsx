@@ -31,6 +31,7 @@ export interface Settings {
   maxTokens: number;
   keepAlive: string;
   systemPrompt: string;
+  openHandsUrl: string;
 }
 
 export interface StreamingMessage {
@@ -59,6 +60,7 @@ const defaultSettings: Settings = {
   maxTokens: 2048,
   keepAlive: '30m',
   systemPrompt: '',
+  openHandsUrl: 'http://localhost:3002',
 };
 
 function generateId(): string {
@@ -441,6 +443,7 @@ export function App() {
           githubStatus={githubStatus}
           onAddCurrentFile={() => vscode.postMessage({ type: 'get-current-file' })}
           onAddWorkspaceContext={() => vscode.postMessage({ type: 'get-workspace-context' })}
+          onOpenHands={() => vscode.postMessage({ type: 'open-openhands' })}
         />
         <ChatWindow
           messages={messages}
