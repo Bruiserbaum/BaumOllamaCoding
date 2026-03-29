@@ -112,22 +112,14 @@ src/
       app.css           — VS Code variable-based theme
 ```
 
-## License
+## License and Project Status
 
-Copyright 2025 Bruiserbaum
+This repository is a personal project shared publicly for learning, reference, portfolio, and experimentation purposes.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+Development may include AI-assisted ideation, drafting, refactoring, or code generation. All code and content published here were reviewed, selected, and curated before release.
 
-    http://www.apache.org/licenses/LICENSE-2.0
+This project is licensed under the Apache License 2.0. See the LICENSE file for details.
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+Unless explicitly stated otherwise, this repository is provided as-is, without warranty, support obligation, or guarantee of suitability for production use.
 
-## Project Status
-
-Active development. Contributions welcome.
+Any third-party libraries, assets, icons, fonts, models, or dependencies used by this project remain subject to their own licenses and terms.
